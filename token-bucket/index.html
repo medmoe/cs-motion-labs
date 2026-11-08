@@ -1,0 +1,148 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Token bucket lab · CS Motion</title>
+<meta name="description" content="The rate limiter from the video, in 32 lines of Python, run against the same seat-hoarding bot. Press Run and you get the video&#x27;s numbers. Then change the bucket and see what gets through.">
+<style>
+:root{--bg:#0b1220;--panel:#121b2e;--ink:#e6edf7;--muted:#9fb0c8;--line:#24324d;--accent:#22d3ee;
+--accent-ink:#04222a;--amber:#fbbf24;--green:#34d399;--red:#f87171}
+@media (prefers-color-scheme: light){:root:not([data-theme="dark"]){--bg:#f6f8fb;--panel:#fff;
+--ink:#0f172a;--muted:#475569;--line:#d6dde8;--accent:#0e7490;--accent-ink:#fff;--amber:#b45309;
+--green:#047857;--red:#b91c1c}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.5 system-ui,-apple-system,"Segoe UI",sans-serif}
+main{max-width:860px;margin:0 auto;padding:20px 16px 48px}
+.kicker{color:var(--amber);font-size:.85rem;font-weight:600;letter-spacing:.04em;text-transform:uppercase}
+h1{font-size:1.7rem;margin:.2em 0 .3em}
+.meta{color:var(--muted);font-size:.9rem;margin:0 0 1em}
+ol.steps{padding-left:1.2em;margin:.5em 0 1.2em}
+.bar{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin:10px 0;position:sticky;bottom:0;
+padding:10px 0;background:var(--bg);z-index:1}
+button,.btn{font:inherit;border-radius:10px;border:1px solid var(--line);background:var(--panel);
+color:var(--ink);padding:9px 14px;cursor:pointer;text-decoration:none}
+button.run{background:var(--accent);color:var(--accent-ink);border-color:var(--accent);font-weight:700;
+padding:12px 26px;font-size:1.05rem}
+button:disabled{opacity:.6;cursor:wait}
+textarea,pre{width:100%;font:14px/1.45 ui-monospace,"DejaVu Sans Mono",Menlo,Consolas,monospace;
+background:var(--panel);color:var(--ink);border:1px solid var(--line);border-radius:12px;padding:12px;margin:0}
+textarea{resize:vertical;white-space:pre;overflow:auto;tab-size:4}
+pre{white-space:pre;overflow-x:auto;min-height:5em}
+pre.err{color:var(--red)}
+.label{color:var(--muted);font-size:.85rem;margin:14px 0 6px}
+#status{color:var(--muted);font-size:.9rem}
+details{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:12px 14px;margin:10px 0}
+details summary{cursor:pointer;color:var(--accent);font-weight:600}
+.q{margin:0 0 8px}
+footer{color:var(--muted);font-size:.85rem;margin-top:28px}
+code{font-family:ui-monospace,"DejaVu Sans Mono",monospace}
+a{color:var(--accent)}
+@media (max-width:600px){textarea,pre{font-size:12px;padding:10px}h1{font-size:1.45rem}
+.bar .btn,#copy{display:none}}
+</style></head>
+<body><main>
+<div class="kicker">Try it yourself · Rate Limiter, Part 2</div>
+<h1>Token bucket</h1>
+<p class="meta">~3 min · runs in your browser · no install, no sign-up</p>
+<p>The rate limiter from the video, in 32 lines of Python, run against the same seat-hoarding bot. Press Run and you get the video&#x27;s numbers. Then change the bucket and see what gets through.</p>
+<ol class="steps"><li>Press <b>Run</b>.</li><li>Change a number at the top of the code, run again.</li>
+<li>Try the challenges below. Predict first, then run.</li></ol>
+<textarea id="code" spellcheck="false" autocapitalize="off" autocomplete="off" autocorrect="off"
+ aria-label="Python code"># Token bucket: try it yourself (Rate Limiter, Part 2 · CS Motion)
+# Press Run. Then change the two numbers below and run again.
+
+CAPACITY = 10        # tokens the bucket holds = the biggest burst
+REFILL_EVERY = 6.0   # seconds per new token = the rate (6 s -&gt; 10 a minute)
+
+
+class TokenBucket:
+    def __init__(self, capacity, every):
+        self.capacity, self.every = capacity, every
+        self.tokens, self.last = float(capacity), 0.0    # starts full
+
+    def allow(self, t):
+        # Refill for the time that passed, never above capacity.
+        self.tokens = min(self.capacity, self.tokens + (t - self.last) / self.every)
+        self.last = t
+        if self.tokens &gt;= 1:
+            self.tokens -= 1                             # spend a token: request passes
+            return True
+        return False                                     # empty: 429 Too Many Requests
+
+
+def most_in(times, span):
+    &quot;&quot;&quot;Most requests in any `span` seconds.&quot;&quot;&quot;
+    return max((sum(1 for u in times if t &lt;= u &lt; t + span) for t in times), default=0)
+
+
+# The bot from the video: 20 holds at 0:59.0-1:00.9, then one retry a second until 1:59.
+bot = [59 + 0.1 * k for k in range(20)] + list(range(62, 120))
+
+bucket = TokenBucket(CAPACITY, REFILL_EVERY)
+passed = [t for t in bot if bucket.allow(t)]
+
+print(f&quot;Bucket: {CAPACITY} tokens, one new token every {REFILL_EVERY:g} s&quot;)
+print(f&quot;The bot sent {len(bot)} holds; {len(passed)} got through.&quot;)
+print(f&quot;Most in any 60 s: {most_in(passed, 60)}  (limit: 10 a minute)&quot;)
+print(f&quot;Most in any 2 s:  {most_in(passed, 2)}&quot;)
+print()
+print(&quot;Each second (# = a hold got through):&quot;)
+for start, end, label in ((59, 90, &quot;0:59&quot;), (90, 120, &quot;1:30&quot;)):
+    print(label, &quot;&quot;.join(&quot;#&quot; if any(s &lt;= t &lt; s + 1 for t in passed) else &quot;.&quot;
+                         for s in range(start, end)))
+</textarea>
+<div class="bar"><button id="run" class="run">▶ Run</button><button id="reset">Reset</button>
+<button id="copy">Copy code</button><a class="btn" href="lab.py" download>Download lab.py</a>
+<span id="status" role="status"></span></div>
+<div class="label" id="outlabel">Output (what Run prints, so you can see it before Python loads)</div>
+<pre id="out" aria-live="polite">Bucket: 10 tokens, one new token every 6 s
+The bot sent 78 holds; 20 got through.
+Most in any 60 s: 19  (limit: 10 a minute)
+Most in any 2 s:  10
+
+Each second (# = a hold got through):
+0:59 #.....#.....#.....#.....#.....#
+1:30 .....#.....#.....#.....#.....#
+</pre>
+<details><summary>Challenge 1</summary><p class="q">Keep CAPACITY = 10 and slow the refill down: try REFILL_EVERY = 30, then 60. Roughly how slow must refills be before the bot can&#x27;t beat 10 in a minute?</p><details><summary>Show the answer</summary><p>About one token a minute (60 s). A full bucket already spends the whole minute&#x27;s allowance, so the worst minute is CAPACITY plus every refill that lands inside it (at 30 s you still get 11). To allow bursts and still enforce the limit, shrink the bucket instead: CAPACITY = 5 with REFILL_EVERY = 12 lets 9 through in the worst minute.</p></details></details><details><summary>Challenge 2</summary><p class="q">Predict first: CAPACITY = 1, REFILL_EVERY = 6. How many get through in the worst minute? And who pays for it?</p><details><summary>Show the answer</summary><p>9, so the limit holds, but there&#x27;s no burst left at all: anyone who taps twice within 6 seconds gets a 429, like a fan holding three seats for friends. Capacity sets how friendly the limiter is; the refill rate sets how strict it is.</p></details></details>
+<footer>Prefer your own machine? <code>python3 lab.py</code>. Plain Python 3, nothing to install.<br>
+From CS Motion: algorithms &amp; system design, animated. <a href="../">All labs</a></footer>
+</main>
+<script>const PYODIDE="https://cdn.jsdelivr.net/pyodide/v0.26.4/full/pyodide.js",PRE="Bucket: 10 tokens, one new token every 6 s\nThe bot sent 78 holds; 20 got through.\nMost in any 60 s: 19  (limit: 10 a minute)\nMost in any 2 s:  10\n\nEach second (# = a hold got through):\n0:59 #.....#.....#.....#.....#.....#\n1:30 .....#.....#.....#.....#.....#\n",PRE_LABEL="Output (what Run prints, so you can see it before Python loads)";
+const code=document.getElementById('code'),out=document.getElementById('out'),
+  runBtn=document.getElementById('run'),status=document.getElementById('status'),
+  outLabel=document.getElementById('outlabel'),ORIGINAL=code.value;
+let py=null,loading=null;
+function fit(){code.rows=Math.min(Math.max(code.value.split('\n').length,8),60)}
+function load(){
+  if(!loading){status.textContent='Loading Python in your browser (one time, a few MB)…';
+    loading=new Promise((ok,ko)=>{const s=document.createElement('script');s.src=PYODIDE;
+      s.onload=()=>loadPyodide().then(p=>{py=p;status.textContent='';ok(p)},ko);
+      s.onerror=()=>ko(new Error('Could not load Python. Check your connection, or run it locally (below).'));
+      document.head.appendChild(s)});}
+  return loading}
+async function run(){
+  runBtn.disabled=true;out.classList.remove('err');
+  try{await load();status.textContent='Running…';let buf='';
+    py.setStdout({batched:s=>{buf+=s+'\n'}});py.setStderr({batched:s=>{buf+=s+'\n'}});
+    const g=py.globals.get('dict')();
+    try{await py.runPythonAsync(code.value,{globals:g});out.textContent=buf||'(no output)'}
+    catch(e){out.textContent=buf+String(e.message||e).split('\n').filter(l=>!l.includes('/lib/python')&&!l.includes('_pyodide')).join('\n');out.classList.add('err')}
+    finally{g.destroy()}
+    outLabel.textContent='Output';status.textContent='';
+    outLabel.scrollIntoView({behavior:'smooth',block:'start'});}
+  catch(e){status.textContent=e.message;}
+  runBtn.disabled=false}
+runBtn.onclick=run;
+code.addEventListener('focus',load,{once:true});
+code.addEventListener('input',fit);
+code.addEventListener('keydown',e=>{
+  if(e.key==='Enter'&&(e.ctrlKey||e.metaKey)){e.preventDefault();run()}
+  else if(e.key==='Tab'&&!e.shiftKey){e.preventDefault();const a=code.selectionStart;
+    code.setRangeText('    ',a,code.selectionEnd,'end')}});
+document.getElementById('reset').onclick=()=>{code.value=ORIGINAL;fit();out.textContent=PRE;
+  out.classList.remove('err');outLabel.textContent=PRE_LABEL};
+document.getElementById('copy').onclick=async e=>{try{await navigator.clipboard.writeText(code.value);
+  e.target.textContent='Copied';setTimeout(()=>e.target.textContent='Copy code',1500)}catch(_){code.select()}};
+fit();
+</script>
+</body></html>
