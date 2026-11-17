@@ -1,0 +1,149 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Two servers said yes lab · CS Motion</title>
+<meta name="description" content="The race from the video, in 37 lines of Python: gateway nodes check one shared Redis counter with GET, then SET, during the partner&#x27;s 500,000-a-second storm. Press Run to see 499,970 get through a limit of 2,000. Then flip ATOMIC and watch one command fix it.">
+<style>
+:root{--bg:#0b1220;--panel:#121b2e;--ink:#e6edf7;--muted:#9fb0c8;--line:#24324d;--accent:#22d3ee;
+--accent-ink:#04222a;--amber:#fbbf24;--green:#34d399;--red:#f87171}
+@media (prefers-color-scheme: light){:root:not([data-theme="dark"]){--bg:#f6f8fb;--panel:#fff;
+--ink:#0f172a;--muted:#475569;--line:#d6dde8;--accent:#0e7490;--accent-ink:#fff;--amber:#b45309;
+--green:#047857;--red:#b91c1c}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.5 system-ui,-apple-system,"Segoe UI",sans-serif}
+main{max-width:860px;margin:0 auto;padding:20px 16px 48px}
+.kicker{color:var(--amber);font-size:.85rem;font-weight:600;letter-spacing:.04em;text-transform:uppercase}
+h1{font-size:1.7rem;margin:.2em 0 .3em}
+.meta{color:var(--muted);font-size:.9rem;margin:0 0 1em}
+ol.steps{padding-left:1.2em;margin:.5em 0 1.2em}
+.bar{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin:10px 0;position:sticky;bottom:0;
+padding:10px 0;background:var(--bg);z-index:1}
+button,.btn{font:inherit;border-radius:10px;border:1px solid var(--line);background:var(--panel);
+color:var(--ink);padding:9px 14px;cursor:pointer;text-decoration:none}
+button.run{background:var(--accent);color:var(--accent-ink);border-color:var(--accent);font-weight:700;
+padding:12px 26px;font-size:1.05rem}
+button:disabled{opacity:.6;cursor:wait}
+textarea,pre{width:100%;font:14px/1.45 ui-monospace,"DejaVu Sans Mono",Menlo,Consolas,monospace;
+background:var(--panel);color:var(--ink);border:1px solid var(--line);border-radius:12px;padding:12px;margin:0}
+textarea{resize:vertical;white-space:pre;overflow:auto;tab-size:4}
+pre{white-space:pre;overflow-x:auto;min-height:5em}
+pre.err{color:var(--red)}
+.label{color:var(--muted);font-size:.85rem;margin:14px 0 6px}
+#status{color:var(--muted);font-size:.9rem}
+details{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:12px 14px;margin:10px 0}
+details summary{cursor:pointer;color:var(--accent);font-weight:600}
+.q{margin:0 0 8px}
+footer{color:var(--muted);font-size:.85rem;margin-top:28px}
+code{font-family:ui-monospace,"DejaVu Sans Mono",monospace}
+a{color:var(--accent)}
+@media (max-width:600px){textarea,pre{font-size:12px;padding:10px}h1{font-size:1.45rem}
+.bar .btn,#copy{display:none}}
+</style></head>
+<body><main>
+<div class="kicker">Try it yourself · Rate Limiter, Part 3</div>
+<h1>Two servers said yes</h1>
+<p class="meta">~3 min · runs in your browser · no install, no sign-up</p>
+<p>The race from the video, in 37 lines of Python: gateway nodes check one shared Redis counter with GET, then SET, during the partner&#x27;s 500,000-a-second storm. Press Run to see 499,970 get through a limit of 2,000. Then flip ATOMIC and watch one command fix it.</p>
+<ol class="steps"><li>Press <b>Run</b>.</li><li>Change a number at the top of the code, run again.</li>
+<li>Try the challenges below. Predict first, then run.</li></ol>
+<textarea id="code" spellcheck="false" autocapitalize="off" autocomplete="off" autocorrect="off"
+ aria-label="Python code"># Two servers said yes: try it yourself (Rate Limiter, Part 3 · CS Motion)
+# Press Run. Then change the numbers below and run again.
+
+RATE = 500_000    # requests a second on the partner&#x27;s key (the retry storm)
+RTT_MS = 0.5      # one round trip from a gateway node to Redis, in ms
+ATOMIC = False    # False: GET, compare, SET (2 trips) · True: one INCR (1 trip)
+LIMIT = 2_000     # the partner may make 2,000 requests a second
+
+import random
+from collections import deque
+
+# One second of requests arriving at random (seeded, so you get the video&#x27;s numbers).
+rnd, t, requests = random.Random(1), 0.0, []
+while (t := t + rnd.expovariate(RATE)) &lt; 1.0:
+    requests.append(t)
+
+rtt = RTT_MS / 1000
+counter, allowed, log = 0, 0, []
+pending = deque()                    # SETs still on their way: (time it lands, value)
+for t in requests:
+    read_at = t + rtt / 2            # the GET (or INCR) reaches Redis half a trip later
+    while pending and pending[0][0] &lt;= read_at:
+        counter = pending.popleft()[1]    # a SET landed
+    if ATOMIC:
+        counter += 1                 # Redis adds and answers in one step: no gap
+        ok = counter &lt;= LIMIT
+    else:
+        seen = counter               # GET: the value right now...
+        ok = seen &lt; LIMIT
+        if ok:                       # ...SET seen + 1 lands a round trip later
+            pending.append((read_at + rtt, seen + 1))
+    allowed += ok
+    if len(log) &lt; 4:
+        log.append(f&quot;  request {len(log) + 1}: Redis says {counter if ATOMIC else seen} -&gt; &quot;
+                   + (&quot;allowed&quot; if ok else &quot;429&quot;))
+
+print(&quot;One INCR&quot; if ATOMIC else &quot;GET, then SET&quot;)
+print(f&quot;{RATE:,} requests in one second, limit {LIMIT:,}&quot;)
+print(f&quot;Allowed: {allowed:,}   ({allowed / LIMIT:.1f}x the limit)&quot;)
+print(f&quot;Requests inside one round trip: {RATE * rtt:,.2f}&quot;)
+print(&quot;The first four:&quot;)
+print(&quot;\n&quot;.join(log))
+</textarea>
+<div class="bar"><button id="run" class="run">▶ Run</button><button id="reset">Reset</button>
+<button id="copy">Copy code</button><a class="btn" href="lab.py" download>Download lab.py</a>
+<span id="status" role="status"></span></div>
+<div class="label" id="outlabel">Output (what Run prints, so you can see it before Python loads)</div>
+<pre id="out" aria-live="polite">GET, then SET
+500,000 requests in one second, limit 2,000
+Allowed: 499,970   (250.0x the limit)
+Requests inside one round trip: 250.00
+The first four:
+  request 1: Redis says 0 -&gt; allowed
+  request 2: Redis says 0 -&gt; allowed
+  request 3: Redis says 0 -&gt; allowed
+  request 4: Redis says 0 -&gt; allowed
+</pre>
+<details><summary>Challenge 1</summary><p class="q">Predict first: put Redis ten times closer (RTT_MS = 0.05). Does a faster network fix the race?</p><details><summary>Show the answer</summary><p>No: 51,719 get through, still 26 times the limit. A shorter trip means fewer requests overlap (25 per round trip instead of 250), but every overlap still loses an update. Speed shrinks the race; only an atomic step (INCR, or a Lua script) removes it. With ATOMIC = True it&#x27;s exactly 2,000 at any distance.</p></details></details><details><summary>Challenge 2</summary><p class="q">Calm the traffic down: RATE = 2_500, only 25% over the limit. Surely the race only matters in a storm?</p><details><summary>Show the answer</summary><p>2,487 of 2,500 get through: the limiter barely limits at all. That&#x27;s about one request per round trip, so a GET often reads the counter before the last SET lands, and the stale value + 1 overwrites newer counts. The counter keeps falling behind and rarely reaches 2,000. A race needs only two requests in flight, not a storm.</p></details></details>
+<footer>Prefer your own machine? <code>python3 lab.py</code>. Plain Python 3, nothing to install.<br>
+From CS Motion: algorithms &amp; system design, animated. <a href="../">All labs</a></footer>
+</main>
+<script>const PYODIDE="https://cdn.jsdelivr.net/pyodide/v0.26.4/full/pyodide.js",PRE="GET, then SET\n500,000 requests in one second, limit 2,000\nAllowed: 499,970   (250.0x the limit)\nRequests inside one round trip: 250.00\nThe first four:\n  request 1: Redis says 0 -> allowed\n  request 2: Redis says 0 -> allowed\n  request 3: Redis says 0 -> allowed\n  request 4: Redis says 0 -> allowed\n",PRE_LABEL="Output (what Run prints, so you can see it before Python loads)";
+const code=document.getElementById('code'),out=document.getElementById('out'),
+  runBtn=document.getElementById('run'),status=document.getElementById('status'),
+  outLabel=document.getElementById('outlabel'),ORIGINAL=code.value;
+let py=null,loading=null;
+function fit(){code.rows=Math.min(Math.max(code.value.split('\n').length,8),60)}
+function load(){
+  if(!loading){status.textContent='Loading Python in your browser (one time, a few MB)…';
+    loading=new Promise((ok,ko)=>{const s=document.createElement('script');s.src=PYODIDE;
+      s.onload=()=>loadPyodide().then(p=>{py=p;status.textContent='';ok(p)},ko);
+      s.onerror=()=>ko(new Error('Could not load Python. Check your connection, or run it locally (below).'));
+      document.head.appendChild(s)});}
+  return loading}
+async function run(){
+  runBtn.disabled=true;out.classList.remove('err');
+  try{await load();status.textContent='Running…';let buf='';
+    py.setStdout({batched:s=>{buf+=s+'\n'}});py.setStderr({batched:s=>{buf+=s+'\n'}});
+    const g=py.globals.get('dict')();
+    try{await py.runPythonAsync(code.value,{globals:g});out.textContent=buf||'(no output)'}
+    catch(e){out.textContent=buf+String(e.message||e).split('\n').filter(l=>!l.includes('/lib/python')&&!l.includes('_pyodide')).join('\n');out.classList.add('err')}
+    finally{g.destroy()}
+    outLabel.textContent='Output';status.textContent='';
+    outLabel.scrollIntoView({behavior:'smooth',block:'start'});}
+  catch(e){status.textContent=e.message;}
+  runBtn.disabled=false}
+runBtn.onclick=run;
+code.addEventListener('focus',load,{once:true});
+code.addEventListener('input',fit);
+code.addEventListener('keydown',e=>{
+  if(e.key==='Enter'&&(e.ctrlKey||e.metaKey)){e.preventDefault();run()}
+  else if(e.key==='Tab'&&!e.shiftKey){e.preventDefault();const a=code.selectionStart;
+    code.setRangeText('    ',a,code.selectionEnd,'end')}});
+document.getElementById('reset').onclick=()=>{code.value=ORIGINAL;fit();out.textContent=PRE;
+  out.classList.remove('err');outLabel.textContent=PRE_LABEL};
+document.getElementById('copy').onclick=async e=>{try{await navigator.clipboard.writeText(code.value);
+  e.target.textContent='Copied';setTimeout(()=>e.target.textContent='Copy code',1500)}catch(_){code.select()}};
+fit();
+</script>
+</body></html>
